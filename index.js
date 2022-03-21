@@ -7,7 +7,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`LISTENIING ON PORT ${PORT}`);
-})
+});
 
 //#region variables
 const sol = 1000000000;
@@ -18,7 +18,7 @@ const tenMinuteIntervals = [];
 const thirtyMinuteIntervals = [];
 const removedTimeIntervals = [];
 const trades = new Map();
-const timeInterval = 30000;
+const timeInterval = 60000;
 const intervalMap = {
   3: threeMinuteIntervals,
   5: fiveMinuteIntervals,
@@ -269,8 +269,10 @@ const combineData = (dataToCombine, resultArray, timeSetting) => {
   console.log("winner");
   console.log(winner);
   console.log("count is " + count);
-  if (count % 10 === 0 && timeSetting === 10) {
-    console.log("mail sent");
+  if (
+    (count % 10 === 0 && timeSetting === 10) ||
+    (count % 30 === 0 && timeSetting === 30)
+  ) {
     sendEmail(timeSetting, winner.collectionName, winner.size);
   }
 };
