@@ -1,6 +1,8 @@
 import nodemailer from "nodemailer";
 import fetch from "node-fetch";
 
+const PORT = process.env.PORT || 3000;
+
 //#region variables
 const sol = 1000000000;
 const totalNumberOfIntervals = [];
