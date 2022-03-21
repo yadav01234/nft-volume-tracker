@@ -1,7 +1,13 @@
 import nodemailer from "nodemailer";
 import fetch from "node-fetch";
+import express from "express";
+
+const app = express();
 
 const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`LISTENIING ON PORT ${PORT}`);
+})
 
 //#region variables
 const sol = 1000000000;
