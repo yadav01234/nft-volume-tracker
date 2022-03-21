@@ -10,7 +10,7 @@ const tenMinuteIntervals = [];
 const thirtyMinuteIntervals = [];
 const removedTimeIntervals = [];
 const trades = new Map();
-const timeInterval = 60000;
+const timeInterval = 30000;
 const intervalMap = {
   3: threeMinuteIntervals,
   5: fiveMinuteIntervals,
