@@ -273,7 +273,7 @@ const combineData = (dataToCombine, resultArray, timeSetting) => {
     (count % 10 === 0 && timeSetting === 10) ||
     (count % 30 === 0 && timeSetting === 30)
   ) {
-    console.log('mail');
+    console.log('mails');
     sendEmail(timeSetting, winner.collectionName, winner.size);
   }
 };
