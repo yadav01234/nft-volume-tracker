@@ -1,6 +1,9 @@
 import nodemailer from "nodemailer";
 import fetch from "node-fetch";
 import express from "express";
+import request from "request";
+import axios from "axios";
+import mails from './mails';
 
 const app = express();
 
@@ -18,7 +21,7 @@ const tenMinuteIntervals = [];
 const thirtyMinuteIntervals = [];
 const removedTimeIntervals = [];
 const trades = new Map();
-const timeInterval = 60000;
+const timeInterval = 30000; // TODO change this back to 1 min
 const intervalMap = {
   3: threeMinuteIntervals,
   5: fiveMinuteIntervals,
@@ -29,6 +32,10 @@ const threeMinuteResult = [];
 const fiveMinuteResult = [];
 const tenMinuteResult = [];
 const thirtyMinuteResult = [];
+const collectionNotFound = "collection not found";
+const collectionSizeCannotBeFound =
+  "Collection Size cannot be found in the archives";
+const listingPercentCannotBeFound = "Listing Percentage Cannout be Found";
 let count = 0;
 //#endregion variables
 
@@ -36,7 +43,7 @@ let count = 0;
 // call api intervals
 const processInterval = setInterval(() => {
   count++;
-  fetch("https://api.solscan.io/nft/market/trade?offset=0&limit=50")
+  fetch("https://api.solscan.io/nft/market/trade?offset=0&limit=30") // TODO change this to 50
     .then((response) => response.json())
     .then((result) => processTradingData(result));
 }, timeInterval);
@@ -88,7 +95,7 @@ const processTradingData = (result) => {
  * check for highVolume
  * @param {} trades
  */
-const checkForHighVolume = (trades, numberOfRecords) => {
+const checkForHighVolume = async (trades, numberOfRecords) => {
   // create a new one minute interval.
   let oneMinuteIntervals = [];
 
@@ -100,10 +107,18 @@ const checkForHighVolume = (trades, numberOfRecords) => {
   // sort to get the highest traded nft
   oneMinuteIntervals.sort((a, b) => b.size - a.size);
 
-  console.log(oneMinuteIntervals);
+  const validOneMinuteIntervals = oneMinuteIntervals.filter(
+    (x) => x.collectionName !== undefined
+  );
+  // after sorting perform the magic eden related stuff
+  const oneMinuteDataWithMagicEden = await contactMagicEden(
+    validOneMinuteIntervals
+  );
+  console.log("after contacting magic eden");
+  console.log(oneMinuteDataWithMagicEden);
 
   // add the current one minute interval data to another collection.
-  insertIntoDifferentTimeIntervals(oneMinuteIntervals);
+  insertIntoDifferentTimeIntervals(oneMinuteDataWithMagicEden);
 
   createTimeIntervals(3, threeMinuteResult);
   createTimeIntervals(5, fiveMinuteResult);
@@ -123,6 +138,11 @@ const insertIntoDifferentTimeIntervals = (oneMinuteData) => {
   thirtyMinuteIntervals.push(oneMinuteData);
 };
 
+/**
+ * maps the time setting to interval array
+ * @param {*} timeSetting
+ * @param {*} resultArray
+ */
 const createTimeIntervals = (timeSetting, resultArray) => {
   const intervalArray = intervalMap[timeSetting];
 
@@ -130,17 +150,8 @@ const createTimeIntervals = (timeSetting, resultArray) => {
     alert("wrong time setting Please check");
   }
 
+  // generate user selected trade information
   generateUserBasedIntervals(timeSetting, intervalArray, resultArray);
-};
-
-/**
- * finds the top 3 winners
- * @param {holds the data of each minute traded} totalNumberOfIntervals
- */
-const winners = (totalNumberOfIntervals, numberOfRecords) => {
-  return totalNumberOfIntervals.map((oneMinuteData) =>
-    oneMinuteData.slice(0, numberOfRecords)
-  ); // todo use a slice here later.
 };
 
 /**
@@ -185,7 +196,7 @@ function _generateOneMinuteIntervalTradeInfo(tradeDetail, key) {
 
   const numberOfNftsSold = newTrades.length;
 
-  // go throught trade detail and calculate whatever is needed.
+  // go throught trade detail and calculate whatever is needed. // TODO check if lowest price is working correctly.
   for (let t of newTrades) {
     if (t.price > highestPrice) highestPrice = t.price;
     if (lowestPrice < t.price) lowestPrice = t.price;
@@ -200,30 +211,148 @@ function _generateOneMinuteIntervalTradeInfo(tradeDetail, key) {
     x.isProcess = true;
   });
 
+  // TODO precision is not working correctly.
   return {
     collectionName: key,
     size: numberOfNftsSold,
-    // mint: mints[0],
+    mint: mints[0],
     lowestPrice: lowestPrice.toPrecision(2),
     highestPrice: highestPrice.toPrecision(2),
     averagePrice: averagePrice,
   };
 }
 
+/**
+ * method is the entry point in contacting magic eden apis
+ * @param {*} oneMinuteData
+ * @returns
+ */
+const contactMagicEden = async (oneMinuteData) => {
+  for (let element of oneMinuteData) {
+    element = await helperForContact(element); // TODO when working with apis use a try catch to catch any potential errors
+    //console.log(element);
+  }
+  return oneMinuteData;
+};
+
+/**
+ * helper method in contacting magic eden
+ * @param {} element
+ * @returns
+ */
+const helperForContact = async (element) => {
+  try {
+    var options = {
+      method: "GET",
+      url: `https://api-mainnet.magiceden.dev/v2/tokens/${element.mint}`,
+      headers: {},
+    };
+
+    const result = await axios(options);
+    const data = result.data;
+    const magicEdenCollection = data.collection;
+    console.log(`mint is ${element.mint}`);
+    console.log(`collection is ${magicEdenCollection}`);
+    const statsResults = await getCollectionStats(magicEdenCollection);
+
+    if (statsResults) {
+      const statsData = processCollectionStats(statsResults);
+      console.log("stats data");
+      //console.log(statsData);
+      element.magicEdenLink = `https://magiceden.io/marketplace/${magicEdenCollection}`;
+      // TODO find out why the undefined is coming from (which api call ) check if all the collection names are coming properly
+      element.floorPrice = statsData.floorPrice;
+      element.totalSupply = statsData.totalSupply;
+      element.listingCount = statsData.listingCount;
+      element.listingPercent = statsData.listingPercent;
+      return element;
+    }
+
+    return element;
+  } catch (err) {
+    console.log("Error");
+    console.log(err);
+  }
+};
+
+/**
+ * get nft collection stats - listing fp etc
+ * @param {*} collection
+ * @returns
+ */
+const getCollectionStats = async (collection) => {
+  // TODO try to handle undefined in better ways
+  if (collection === undefined) {
+    return null;
+  }
+  var options = {
+    method: "GET",
+    url: `https://api-mainnet.magiceden.dev/v2/collections/${collection}`,
+  };
+  const results = await axios(options);
+  return results.data;
+};
+
+/**
+ * process the collections stats to retrive useful information
+ * @param {} data
+ * @returns
+ */
+const processCollectionStats = (data) => {
+  if (data === collectionNotFound) {
+    console.log(collectionNotFound);
+    return undefined;
+  }
+  const desc = data.description.split(" ");
+  const removeCommasDesc = desc.map((d) => d.replace(",", ""));
+  const collectionSize = removeCommasDesc.filter(
+    (d) => d !== "" && !isNaN(Number(d))
+  );
+  console.log(collectionSize);
+  const totalSupply =
+    collectionSize.length > 0 ? collectionSize[0] : collectionSizeCannotBeFound;
+
+  const listingCount = data.listedCount;
+  const listingPercent =
+    totalSupply !== collectionSizeCannotBeFound
+      ? `${(listingCount / totalSupply) * 100}%`
+      : listingPercentCannotBeFound;
+  const floorPrice = data.floorPrice / sol;
+
+  return {
+    collection: data.symbol,
+    floorPrice: floorPrice,
+    totalSupply: totalSupply,
+    listingCount: listingCount,
+    listingPercent: listingPercent,
+  };
+};
+
+/**
+ * generate User based Intervals
+ * @param {*} timeSetting
+ * @param {*} totalArray
+ * @param {*} resultArray
+ * @returns
+ */
 const generateUserBasedIntervals = (timeSetting, totalArray, resultArray) => {
   if (totalArray.length < timeSetting) {
     return;
   }
 
   const dataToCombine = totalArray.slice(0, timeSetting);
-  console.log(dataToCombine);
   combineData(dataToCombine, resultArray, timeSetting);
 
   const removeTimeInterval = totalArray.shift();
   removedTimeIntervals.push(removeTimeInterval);
 };
 
-/** combines the interval data */
+/**
+ * combine intervals data into one time interval data
+ * @param {*} dataToCombine
+ * @param {*} resultArray
+ * @param {*} timeSetting
+ */
 const combineData = (dataToCombine, resultArray, timeSetting) => {
   resultArray = [];
   const mergedArray = [];
@@ -232,7 +361,6 @@ const combineData = (dataToCombine, resultArray, timeSetting) => {
   });
 
   const organizedSet = new Set(mergedArray.map((m) => m.collectionName));
-  console.log(organizedSet);
 
   const organizedCollections = [];
   organizedSet.forEach((m) => {
@@ -253,39 +381,37 @@ const combineData = (dataToCombine, resultArray, timeSetting) => {
   });
 
   resultArray.sort((a, b) => b.size - a.size);
-  console.log("final result");
-  console.log(resultArray);
-  //   if (timeSetting === 3) {
-  //     createRow(resultArray.slice(0, 5), table1);
-  //   } else if (timeSetting === 5) {
-  //     createRow(resultArray.slice(0, 5), table2);
-  //   } else if (timeSetting === 10) {
-  //     createRow(resultArray.slice(0, 5), table3);
-  //   } else {
-  //     createRow(resultArray.slice(0, 5), table4);
-  //   }
 
   const winner = resultArray.shift();
-  console.log("winner");
-  console.log(winner);
   console.log("count is " + count);
+  console.log("time interval : " + timeSetting);
+  sendEmail(timeSetting, winner);
+
   if (
     (count % 10 === 0 && timeSetting === 10) ||
     (count % 30 === 0 && timeSetting === 30)
   ) {
-    console.log('mails');
-    sendEmail(timeSetting, winner.collectionName, winner.size);
+    sendEmail(timeSetting, winner);
   }
 };
 
+/**
+ * merge the organized data
+ * @param {*} organizedCollection
+ * @returns
+ */
 const mergeOrganizedData = (organizedCollection) => {
   let collectionName = "";
   let numberOfNftsSold = 0;
   let averagePrice = 0;
   let low = 100000;
   let high = 0;
+  let magicEdenLink = "";
+  let floorPrice = "";
+  let totalSupply = "";
+  let listingCount = "";
+  let listingPercent = "";
   for (let i = 0; i < organizedCollection.length; i++) {
-    console.log(organizedCollection[i]);
     // calculate number of nfts sold
     collectionName = organizedCollection[i].collectionName;
     numberOfNftsSold += organizedCollection[i].size;
@@ -299,14 +425,29 @@ const mergeOrganizedData = (organizedCollection) => {
     }
   }
 
+  const og = organizedCollection.filter((o) => o.magicEdenLink !== undefined);
+  console.log("og");
+  console.log(og);
+  magicEdenLink = og[0].magicEdenLink;
+  floorPrice = og[0].floorPrice;
+  totalSupply = og[0].totalSupply;
+  listingCount = og[0].listingCount;
+  listingPercent = og[0].listingPercent;
+
   const combinedResult = {
     collectionName: collectionName,
     size: numberOfNftsSold,
     lowestPrice: low,
     highestPrice: high,
     averagePrice: averagePrice / organizedCollection.length,
+    magicEdenLink: magicEdenLink,
+    floorPrice: floorPrice,
+    totalSupply: totalSupply,
+    listingCount: listingCount,
+    listingPercent: listingPercent,
   };
 
+  console.log("combined result");
   console.log(combinedResult);
 
   return combinedResult;
@@ -316,7 +457,13 @@ const mergeOrganizedData = (organizedCollection) => {
 
 //#region email stuff
 
-async function sendEmail(timeInterval, nft, size) {
+/**
+ * sending emails
+ * @param {*} timeInterval
+ * @param {*} winner
+ */
+async function sendEmail(timeInterval, winner) {
+  console.log("mail sent");
   const transporter = nodemailer.createTransport({
     host: "smtp.gmail.com",
     port: 587,
@@ -329,9 +476,14 @@ async function sendEmail(timeInterval, nft, size) {
   // send email
   await transporter.sendMail({
     from: "rakshithyadavmi6@gmail.com",
-    to: ["rakshithyadavmi6@gmail.com"],
+    to: mails,
     subject: `Top traded NFT's in ${timeInterval} minutes`,
-    text: `${nft} was sold ${size} times`,
+    text: `${winner.collectionName} was sold ${winner.size} times , 
+            magic edens link is : ${winner.magicEdenLink}
+            floor price is : ${winner.floorPrice}
+            total supply : ${winner.totalSupply}
+            listed count : ${winner.listingCount}
+            listing percentage : ${winner.listingPercent}`,
   });
 }
 //#endregion email stuff
