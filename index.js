@@ -1,11 +1,84 @@
 import nodemailer from "nodemailer";
 import fetch from "node-fetch";
 import express from "express";
-import request from "request";
 import axios from "axios";
-import mails from './mails';
+import mails from "./mails.js";
+import DiscordJs, { MessageEmbed } from "discord.js";
+let threeMinuteChannelId = [];
+let fiveMinuteChannelId = [];
+let tenMinuteChannelId = [];
+let thirtyMinuteChannelId = [];
 
 const app = express();
+
+const dBot = new DiscordJs.Client({
+  intents: [
+    DiscordJs.Intents.FLAGS.GUILDS,
+    DiscordJs.Intents.FLAGS.GUILD_MESSAGES,
+  ],
+});
+
+dBot.login("OTYyMDA3ODY0OTc5ODgxOTk0.YlBRpA.vJ5rZkXeKooe3z26XQTfmEXNuuY");
+
+dBot.on("messageCreate", (msg) => {
+  if (msg.content === "!create trade channels") {
+    threeMinuteChannelId.push(
+      msg.guild.channels.cache.find((c) => c.name === "three-minute-channel").id
+    );
+    fiveMinuteChannelId.push(
+      msg.guild.channels.cache.find((c) => c.name === "five-minute-channel").id
+    );
+    tenMinuteChannelId.push(
+      msg.guild.channels.cache.find((c) => c.name === "ten-minute-channel").id
+    );
+    thirtyMinuteChannelId.push(
+      msg.guild.channels.cache.find((c) => c.name === "thirty-minute-channel")
+        .id
+    );
+    if (!msg.guild.channels.cache.find((c) => c.name === "test")?.id) {
+      msg.guild.channels.create("test", {
+        type: "text",
+        permissionOverwrites: [
+          {
+            id: msg.guild.id,
+            allow: ["VIEW_CHANNEL", "SEND_MESSAGES"],
+          },
+        ],
+      });
+    }
+  }
+});
+
+// const bot = new Eris(
+//   "OTYyMDA3ODY0OTc5ODgxOTk0.YlBRpA.vJ5rZkXeKooe3z26XQTfmEXNuuY"
+// );
+
+// bot.on("messageCreate", (msg) => {
+//   if (msg.content === "!three-minute-channel") {
+//     threeMinuteChannelId = msg.channel.id;
+//     bot.createMessage(threeMinuteChannelId, "GET Ready");
+//   }
+//   if (msg.content === "!five-minute-channel") {
+//     fiveMinuteChannelId = msg.channel.id;
+//     bot.createMessage(fiveMinuteChannelId, "GET Ready");
+//   }
+//   if (msg.content === "!ten-minute-channel") {
+//     tenMinuteChannelId = msg.channel.id;
+//     bot.createMessage(tenMinuteChannelId, "GET Ready");
+//   }
+//   if (msg.content === "!thirty-minute-channel") {
+//     thirtyMinuteChannelId = msg.channel.id;
+//     bot.createMessage(thirtyMinuteChannelId, "GET Ready");
+//   }
+// });
+
+// bot.on("ready", () => {
+//   // When the bot is ready
+//   console.log("Ready!"); // Log "Ready!"
+//   console.log(bot.guild);
+// });
+
+// bot.connect();
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
@@ -14,6 +87,7 @@ app.listen(PORT, () => {
 
 //#region variables
 const sol = 1000000000;
+const collectMints = [];
 const totalNumberOfIntervals = [];
 const threeMinuteIntervals = [];
 const fiveMinuteIntervals = [];
@@ -42,16 +116,13 @@ let count = 0;
 //#region api
 // call api intervals
 const processInterval = setInterval(() => {
+  console.log(`count is ${count}`);
   count++;
+  console.log(`count is ${count}`);
   fetch("https://api.solscan.io/nft/market/trade?offset=0&limit=30") // TODO change this to 50
     .then((response) => response.json())
     .then((result) => processTradingData(result));
 }, timeInterval);
-
-const stop = () => {
-  console.log("stopped");
-  clearInterval(processInterval);
-};
 
 // button.addEventListener("click", stop);
 //#endregion api
@@ -111,19 +182,20 @@ const checkForHighVolume = async (trades, numberOfRecords) => {
     (x) => x.collectionName !== undefined
   );
   // after sorting perform the magic eden related stuff
-  const oneMinuteDataWithMagicEden = await contactMagicEden(
-    validOneMinuteIntervals
-  );
-  console.log("after contacting magic eden");
-  console.log(oneMinuteDataWithMagicEden);
+  // const oneMinuteDataWithMagicEden = await contactMagicEden(
+  //   validOneMinuteIntervals
+  // );
 
   // add the current one minute interval data to another collection.
-  insertIntoDifferentTimeIntervals(oneMinuteDataWithMagicEden);
+  insertIntoDifferentTimeIntervals(validOneMinuteIntervals);
 
   createTimeIntervals(3, threeMinuteResult);
   createTimeIntervals(5, fiveMinuteResult);
   createTimeIntervals(10, tenMinuteResult);
   createTimeIntervals(30, thirtyMinuteResult);
+  console.log(
+    "--------------------------------------------THE END -------------------------------------"
+  );
 };
 
 /**
@@ -227,12 +299,11 @@ function _generateOneMinuteIntervalTradeInfo(tradeDetail, key) {
  * @param {*} oneMinuteData
  * @returns
  */
-const contactMagicEden = async (oneMinuteData) => {
-  for (let element of oneMinuteData) {
-    element = await helperForContact(element); // TODO when working with apis use a try catch to catch any potential errors
-    //console.log(element);
-  }
-  return oneMinuteData;
+const contactMagicEden = async (element) => {
+  console.log("element");
+  console.log(element);
+  const data = await helperForContact(element); // TODO when working with apis use a try catch to catch any potential errors
+  return data;
 };
 
 /**
@@ -248,17 +319,14 @@ const helperForContact = async (element) => {
       headers: {},
     };
 
+    console.log(`https://api-mainnet.magiceden.dev/v2/tokens/${element.mint}`);
     const result = await axios(options);
     const data = result.data;
     const magicEdenCollection = data.collection;
-    console.log(`mint is ${element.mint}`);
-    console.log(`collection is ${magicEdenCollection}`);
     const statsResults = await getCollectionStats(magicEdenCollection);
 
     if (statsResults) {
       const statsData = processCollectionStats(statsResults);
-      console.log("stats data");
-      //console.log(statsData);
       element.magicEdenLink = `https://magiceden.io/marketplace/${magicEdenCollection}`;
       // TODO find out why the undefined is coming from (which api call ) check if all the collection names are coming properly
       element.floorPrice = statsData.floorPrice;
@@ -271,7 +339,10 @@ const helperForContact = async (element) => {
     return element;
   } catch (err) {
     console.log("Error");
-    console.log(err);
+    console.log(err.statusCode);
+    console.log(`https://api-mainnet.magiceden.dev/v2/tokens/${element?.mint}`);
+    // processInterval;
+    sendErrorEmail();
   }
 };
 
@@ -300,7 +371,6 @@ const getCollectionStats = async (collection) => {
  */
 const processCollectionStats = (data) => {
   if (data === collectionNotFound) {
-    console.log(collectionNotFound);
     return undefined;
   }
   const desc = data.description.split(" ");
@@ -308,7 +378,6 @@ const processCollectionStats = (data) => {
   const collectionSize = removeCommasDesc.filter(
     (d) => d !== "" && !isNaN(Number(d))
   );
-  console.log(collectionSize);
   const totalSupply =
     collectionSize.length > 0 ? collectionSize[0] : collectionSizeCannotBeFound;
 
@@ -336,6 +405,7 @@ const processCollectionStats = (data) => {
  * @returns
  */
 const generateUserBasedIntervals = (timeSetting, totalArray, resultArray) => {
+  //console.log(`count is ${count} in generateUserBasedIntervals`);
   if (totalArray.length < timeSetting) {
     return;
   }
@@ -353,7 +423,7 @@ const generateUserBasedIntervals = (timeSetting, totalArray, resultArray) => {
  * @param {*} resultArray
  * @param {*} timeSetting
  */
-const combineData = (dataToCombine, resultArray, timeSetting) => {
+const combineData = async (dataToCombine, resultArray, timeSetting) => {
   resultArray = [];
   const mergedArray = [];
   dataToCombine.forEach((d) => {
@@ -383,16 +453,70 @@ const combineData = (dataToCombine, resultArray, timeSetting) => {
   resultArray.sort((a, b) => b.size - a.size);
 
   const winner = resultArray.shift();
-  console.log("count is " + count);
-  console.log("time interval : " + timeSetting);
-  sendEmail(timeSetting, winner);
+
+  console.log(`count is ${count} and time setting is ${timeSetting}`);
+  console.log(resultArray);
+  console.log("winner");
+  console.log(winner);
+  const withMeData = await contactMagicEden(winner);
+  console.log("withMeData");
+  console.log(withMeData);
+
+  if (count % 3 === 0 && timeSetting === 3) {
+    const embed = createMessage(withMeData, timeSetting);
+    threeMinuteChannelId.forEach((x) => {
+      // dBot.channels.cache.get(x).send(meData.msg);
+      dBot.channels.cache.get(x).send({ embeds: [embed] });
+    });
+
+    //dBot.createMessage(threeMinuteChannelId, meData);
+  }
+
+  if (count % 5 === 0 && timeSetting === 5) {
+    const embed = createMessage(withMeData, timeSetting);
+    fiveMinuteChannelId.forEach((x) => {
+      dBot.channels.cache.get(x).send({ embeds: [embed] });
+      //dBot.channels.cache.get(x).send({ embed: [meData.embed] });
+    });
+  }
+
+  if (count % 10 === 0 && timeSetting === 10) {
+    const embed = createMessage(withMeData, timeSetting);
+    tenMinuteChannelId.forEach((x) => {
+      dBot.channels.cache.get(x).send({ embeds: [embed] });
+      //dBot.channels.cache.get(x).send({ embed: [meData.embed] });
+    });
+  }
+
+  if (count % 30 === 0 && timeSetting === 30) {
+    const embed = createMessage(withMeData, timeSetting);
+    thirtyMinuteChannelId.forEach((x) => {
+      dBot.channels.cache.get(x).send({ embeds: [embed] });
+      //dBot.channels.cache.get(x).send({ embed: [meData.embed] });
+    });
+  }
 
   if (
     (count % 10 === 0 && timeSetting === 10) ||
     (count % 30 === 0 && timeSetting === 30)
   ) {
-    sendEmail(timeSetting, winner);
+    sendEmail(timeSetting, withMeData);
   }
+};
+
+const createMessage = (withMeData, timeSetting) => {
+  const embed = new MessageEmbed()
+    .setColor("#0099ff")
+    .setTitle(`Highest Volume Traded Nft in ${timeSetting} mins`)
+    .addField(
+      withMeData?.collectionName,
+      `Sales : ${withMeData?.size}
+    Floor Price : ${withMeData?.floorPrice}`,
+      false
+    )
+    .setURL(withMeData?.magicEdenLink);
+
+  return embed;
 };
 
 /**
@@ -406,6 +530,7 @@ const mergeOrganizedData = (organizedCollection) => {
   let averagePrice = 0;
   let low = 100000;
   let high = 0;
+  let mint = "";
   let magicEdenLink = "";
   let floorPrice = "";
   let totalSupply = "";
@@ -416,6 +541,7 @@ const mergeOrganizedData = (organizedCollection) => {
     collectionName = organizedCollection[i].collectionName;
     numberOfNftsSold += organizedCollection[i].size;
     averagePrice += organizedCollection[i].averagePrice;
+    mint = organizedCollection[i].mint;
     if (organizedCollection[i].lowestPrice < low) {
       low = organizedCollection[i].lowestPrice;
     }
@@ -426,13 +552,12 @@ const mergeOrganizedData = (organizedCollection) => {
   }
 
   const og = organizedCollection.filter((o) => o.magicEdenLink !== undefined);
-  console.log("og");
-  console.log(og);
-  magicEdenLink = og[0].magicEdenLink;
-  floorPrice = og[0].floorPrice;
-  totalSupply = og[0].totalSupply;
-  listingCount = og[0].listingCount;
-  listingPercent = og[0].listingPercent;
+  // TODO fix the undefined error ASAP
+  // magicEdenLink = og[0]?.magicEdenLink;
+  // floorPrice = og[0]?.floorPrice;
+  // totalSupply = og[0]?.totalSupply;
+  // listingCount = og[0]?.listingCount;
+  // listingPercent = og[0]?.listingPercent;
 
   const combinedResult = {
     collectionName: collectionName,
@@ -440,15 +565,8 @@ const mergeOrganizedData = (organizedCollection) => {
     lowestPrice: low,
     highestPrice: high,
     averagePrice: averagePrice / organizedCollection.length,
-    magicEdenLink: magicEdenLink,
-    floorPrice: floorPrice,
-    totalSupply: totalSupply,
-    listingCount: listingCount,
-    listingPercent: listingPercent,
+    mint,
   };
-
-  console.log("combined result");
-  console.log(combinedResult);
 
   return combinedResult;
 };
@@ -463,7 +581,7 @@ const mergeOrganizedData = (organizedCollection) => {
  * @param {*} winner
  */
 async function sendEmail(timeInterval, winner) {
-  console.log("mail sent");
+  console.log(`count is ${count} time to send a email`);
   const transporter = nodemailer.createTransport({
     host: "smtp.gmail.com",
     port: 587,
@@ -484,6 +602,26 @@ async function sendEmail(timeInterval, winner) {
             total supply : ${winner.totalSupply}
             listed count : ${winner.listingCount}
             listing percentage : ${winner.listingPercent}`,
+  });
+}
+
+async function sendErrorEmail(timeInterval, winner) {
+  const transporter = nodemailer.createTransport({
+    host: "smtp.gmail.com",
+    port: 587,
+    auth: {
+      user: "rakshithyadavmi6@gmail.com",
+      pass: "mffpewkksggbobjx",
+    },
+  });
+
+  // send email
+  await transporter.sendMail({
+    from: "rakshithyadavmi6@gmail.com",
+    to: mails,
+    subject: `Error Server will Restart`,
+    text: `there as been an a unforeseen error or solana network is really congested. the service will automatically restart. 
+    Thank you for your patience`,
   });
 }
 //#endregion email stuff
